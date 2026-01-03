@@ -74,7 +74,7 @@ st.markdown("""
 def load_data():
     try:
         # Baca CSV
-        df = pd.read_csv('data/Adidas US Sales Datasets.csv', header=4)
+        df = pd.read_csv('Adidas US Sales Datasets.csv', header=4)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
         # --- Fungsi Pembersih (Sangat Aman) ---
