@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import numpy as np
+import sqlite3
+import os
 
 # -----------------------------------------------------------------------------
 # 1. KONFIGURASI HALAMAN & TEMA "MIDNIGHT PREMIUM"
@@ -49,34 +50,46 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. LOAD DATA (SMART LOADER - ANTI ERROR PATH)
+# 2. LOAD DATA DARI DATA WAREHOUSE (SQLITE)
 # -----------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    df = None
-    # Daftar kemungkinan lokasi file (Biar Streamlit nyari sendiri)
-    possible_paths = [
-        'dashboard-bi-main/data/Adidas US Sales Datasets.csv', # Kemungkinan 1 (Nested)
-        'data/Adidas US Sales Datasets.csv',                   # Kemungkinan 2 (Standard)
-        'Adidas US Sales Datasets.csv'                         # Kemungkinan 3 (Root)
-    ]
+    db_path = 'adidas_dw.db'
     
-    # Coba satu-satu sampai ketemu
-    for path in possible_paths:
-        try:
-            df = pd.read_csv(path, header=4)
-            break # Berhenti kalau ketemu
-        except FileNotFoundError:
-            continue
-            
-    if df is None:
-        st.error("⚠️ FATAL ERROR: File CSV tidak ditemukan di folder manapun!")
-        st.stop()
+    # Cek apakah database ada?
+    if not os.path.exists(db_path):
+        st.error("⚠️ Database 'adidas_dw.db' belum ditemukan! Pastikan sudah menjalankan 'python setup_db.py'.")
+        return None
 
     try:
-        # Bersih-bersih data
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        # 1. Buka Koneksi ke Database
+        conn = sqlite3.connect(db_path)
         
+        # 2. Query SQL (Ambil semua data dari tabel fact_sales)
+        query = "SELECT * FROM fact_sales"
+        
+        # 3. Baca hasil query jadi DataFrame
+        df = pd.read_sql(query, conn)
+        
+        # 4. Tutup koneksi
+        conn.close()
+        
+        # --- RENAME BALIK (SQL -> Dashboard Format) ---
+        # Karena di SQL kita ubah spasi jadi underscore, sekarang kita balikin lagi
+        column_mapping = {
+            'Retailer_ID': 'Retailer ID',
+            'Invoice_Date': 'Invoice Date',
+            'Price_per_Unit': 'Price per Unit',
+            'Units_Sold': 'Units Sold',
+            'Total_Sales': 'Total Sales',
+            'Operating_Profit': 'Operating Profit',
+            'Operating_Margin': 'Operating Margin',
+            'Sales_Method': 'Sales Method',
+            'Margin_Pct': 'Margin %'
+        }
+        df = df.rename(columns=column_mapping)
+        
+        # --- CLEANING DATA ---
         def clean_currency(x):
             try:
                 if isinstance(x, str): return float(x.replace('$', '').replace(',', '').replace(' ', '').strip())
@@ -97,7 +110,7 @@ def load_data():
         
         if 'Operating Margin' in df.columns:
             df['Operating Margin'] = df['Operating Margin'].apply(clean_percent)
-            # Logika koreksi margin (0.5 vs 50.0)
+            # Logika koreksi margin
             if df['Operating Margin'].mean() < 1.0: df['Margin %'] = df['Operating Margin'] * 100
             else: df['Margin %'] = df['Operating Margin']
         
@@ -111,8 +124,9 @@ def load_data():
             df['Category'] = df['Product'].apply(lambda x: "Footwear" if "Footwear" in str(x) else ("Apparel" if "Apparel" in str(x) else "Gear"))
         
         return df
+        
     except Exception as e:
-        st.error(f"⚠️ Error saat membersihkan data: {e}")
+        st.error(f"⚠️ Error Koneksi Database: {e}")
         return None
 
 df = load_data()
@@ -124,7 +138,7 @@ df = load_data()
 st.markdown("""
 <div class="header-container">
     <h1 class="header-title">👟 ADIDAS SALES EXECUTIVE</h1>
-    <p class="header-subtitle">Real-time Performance Monitoring System</p>
+    <p class="header-subtitle">Powered by Data Warehouse (SQLite)</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -249,4 +263,4 @@ if df is not None:
         except Exception as e: st.error(f"Modul Margin Error: {e}")
 
 else:
-    st.info("Sedang memuat data... (Jika lama, pastikan file CSV ada di folder 'data')")
+    st.info("Sedang memuat Database... Pastikan file 'adidas_dw.db' ada di folder yang sama.")
